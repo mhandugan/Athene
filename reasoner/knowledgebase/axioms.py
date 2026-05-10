@@ -16,7 +16,7 @@ class Axiom(object):
 
 class And(Axiom):
     '''
-        Class for writing And axioms. 
+        Class for writing And axioms.
         Ex. A ^ B is written as And(A,B)
     '''
 
@@ -27,7 +27,7 @@ class And(Axiom):
         logger.debug(f"Initialised axiom And({self.term_a},{self.term_b})")
 
     def __hash__(self):
-        return hash(self.type+str(hash(self.term_a))+str(hash(self.term_b)))
+        return hash(self.type) ^ hash(self.term_a) ^ hash(self.term_b)
 
     def __str__(self):
         return "("+str(self.term_a)+" AND "+str(self.term_b)+")"
@@ -48,7 +48,7 @@ class Or(Axiom):
         logger.debug(f"Initialised axiom Or({self.term_a},{self.term_b})")
 
     def __hash__(self):
-        return hash(self.type+str(hash(self.term_a))+str(hash(self.term_b)))
+        return hash(self.type) ^ hash(self.term_a) ^ hash(self.term_b)
 
     def __str__(self):
         return "("+str(self.term_a)+" OR "+str(self.term_b)+")"
