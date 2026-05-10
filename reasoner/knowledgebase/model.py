@@ -7,6 +7,7 @@ from typing import Callable
 
 from ..reasoning.nnf import NNF, NNFInput, NNFResult
 from ..reasoning.tableau import Graph, get_models
+from ..knowledgebase.graph import NodeNameGenerator
 from .axioms import ABoxAxiom, AnyAxiom, ClassAssertion, RoleAssertion, TBoxAxiom
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,7 @@ class Model(object):
   def __init__(self) -> None:
     self.models: list[Graph] = [{}]
     self.pp = pprint.PrettyPrinter(indent=2)
+    self.namer = NodeNameGenerator()
     self.axiom_split_methods: dict[str, Callable] = {
       "C_ASSERT": self.__split_class_assert,
       "R_ASSERT": self.__split_role_assert,
@@ -34,12 +36,12 @@ class Model(object):
 
   def _get_sat_models(self, axiom: NNFResult, individual: str | None = None) -> list[Graph]:
     """
-    Runs tableau on a copy of currently satisfiable models and
-    returns the satisfiable ones.
+    Runs tableau on a deep copy of currently satisfiable models and
+    returns the satisfiable ones. The originals are never mutated.
     """
     models: list[Graph] = []
     for model in self.models:
-      models += get_models(model, axiom, individual)  # type: ignore[arg-type]
+      models += get_models(deepcopy(model), axiom, individual, self.namer)  # type: ignore[arg-type]
     return models
 
   def __process_graph(self, axiom: NNFResult, node: str | None = None) -> None:
@@ -60,17 +62,19 @@ class Model(object):
   def is_consistent(self) -> bool:
     return len(self.models) != 0
 
-  def is_satisfiable(self, axiom: ABoxAxiom) -> bool:
+  def is_satisfiable(self, axiom: ABoxAxiom | TBoxAxiom) -> bool:
     """
-    Checks if the given axiom is satisfiable against the current models.
-    Changes made during inference are discarded.
+    Checks if the given axiom is satisfiable against the current models
+    without committing it. Safe to call for both ABox and TBox axioms.
     """
-    node: str | None = None
-    inner = axiom.axiom
-    if axiom.type == "ABOX":
-      inner, node = self.axiom_split_methods[inner.type](inner)
-    nnf = self.__get_nnf(inner)  # type: ignore[arg-type]
-    return len(self._get_sat_models(nnf, node)) != 0
+    if isinstance(axiom, ABoxAxiom):
+      inner, node = self.axiom_split_methods[axiom.axiom.type](axiom.axiom)
+      nnf = self.__get_nnf(inner)  # type: ignore[arg-type]
+      return len(self._get_sat_models(nnf, node)) != 0
+    else:
+      # TBox axioms apply globally (#ALL) — test against every existing node
+      nnf = self.__get_nnf(axiom.axiom)  # type: ignore[arg-type]
+      return len(self._get_sat_models(nnf, "#ALL")) != 0
 
   def add_axiom(self, axiom: ABoxAxiom | TBoxAxiom) -> None:
     """Permanently adds the given axiom to the graph."""

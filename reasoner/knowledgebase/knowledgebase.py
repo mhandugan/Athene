@@ -84,7 +84,7 @@ class KnowledgeBase(object):
   def is_consistent(self) -> bool:
     return self.model.is_consistent()
 
-  def is_satisfiable(self, axiom: ABoxAxiom) -> bool:
+  def is_satisfiable(self, axiom: ABoxAxiom | TBoxAxiom) -> bool:
     return self.model.is_satisfiable(axiom)
 
   def run_sat(self) -> None:

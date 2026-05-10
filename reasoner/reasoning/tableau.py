@@ -22,9 +22,6 @@ NodeData = tuple[AxiomBucket, set[ConceptExpr], bool, EdgeMap]
 # A completion graph: maps individual name -> node data
 Graph = dict[str, NodeData]
 
-namer = NodeNameGenerator()
-
-
 def update_and_check(
   label: ConceptExpr,
   label_set: set[ConceptExpr],
@@ -57,10 +54,13 @@ def run_expansion_loop(
   graph: Graph,
   node: str,
   models: list[Graph] | None = None,
+  namer: NodeNameGenerator | None = None,
 ) -> list[Graph]:
   """Runs expansion rules according to the ALC tableau algorithm."""
   if models is None:
     models = []
+  if namer is None:
+    namer = NodeNameGenerator()
 
   axioms, expanded, consistent, edges = graph[node]
 
@@ -86,12 +86,12 @@ def run_expansion_loop(
       graph_copy_a[node] = (axioms_a, expanded_a, consistent_a, edges_a)
       models_a_copy = deepcopy(models)
       models_b_copy = deepcopy(models)
-      models_a = run_expansion_loop(graph_copy_a, node, models_a_copy)
+      models_a = run_expansion_loop(graph_copy_a, node, models_a_copy, namer)
       if is_model_consistent(models_a):
         models += models_a
       axioms_b, expanded_b, consistent_b = update_axioms(axiom2, axioms_b, expanded_b, consistent_b)
       graph_copy_b[node] = (axioms_b, expanded_b, consistent_b, edges_b)
-      models_b = run_expansion_loop(graph_copy_b, node, models_b_copy)
+      models_b = run_expansion_loop(graph_copy_b, node, models_b_copy, namer)
       if is_model_consistent(models_b):
         models += models_b
       return models
@@ -101,7 +101,7 @@ def run_expansion_loop(
     if isinstance(axiom, Some):
       name = axiom.name
       axiom1 = axiom.concept
-      children = edges.setdefault(name)
+      children = edges.get(name)
       if children is None:
         node_name = namer.get_name()
         edges[name] = set({node_name})
@@ -110,14 +110,14 @@ def run_expansion_loop(
           axiom1, graph[node_name][0], graph[node_name][1], graph[node_name][2]
         )
         graph[node_name] = (axioms, expanded, consistent, graph[node_name][3])
-        return run_expansion_loop(graph, node_name, deepcopy(models))
+        return run_expansion_loop(graph, node_name, deepcopy(models), namer)
       else:
         for child in children:
           axioms, expanded, consistent = update_axioms(
             axiom1, graph[child][0], graph[child][1], graph[child][2]
           )
           graph[child] = (axioms, expanded, consistent, graph[child][3])
-          models += run_expansion_loop(graph, child, deepcopy(models))
+          models += run_expansion_loop(graph, child, deepcopy(models), namer)
         return models
 
   while len(axioms["ALL"]):
@@ -125,14 +125,14 @@ def run_expansion_loop(
     if isinstance(axiom, All):
       name = axiom.name
       axiom1 = axiom.concept
-      children = edges.setdefault(name)
+      children = edges.get(name)
       if children is not None:
         for child in children:
           axioms, expanded, consistent = update_axioms(
             axiom1, graph[child][0], graph[child][1], graph[child][2]
           )
           graph[child] = (axioms, expanded, consistent, graph[child][3])
-          models += run_expansion_loop(graph, child, deepcopy(models))
+          models += run_expansion_loop(graph, child, deepcopy(models), namer)
         return models
 
   if (
@@ -145,13 +145,12 @@ def run_expansion_loop(
       models.append(graph)
     return models
   else:
-    return run_expansion_loop(graph, node, models)
+    return run_expansion_loop(graph, node, models, namer)
 
 
 def prepare_graph(graph: Graph, individual: str) -> Graph:
   """Adds a node for individual if not already present."""
-  node = graph.setdefault(individual)
-  if node is None:
+  if individual not in graph:
     graph[individual] = (create_axioms_struct(), set(), True, {})
   return graph
 
@@ -168,34 +167,49 @@ def is_model_consistent(models: list[Graph]) -> bool:
 
 
 def prime_graph(graph: Graph, axiom: NNFResult, node: str) -> tuple[Graph, NNFResult]:
-  axioms = graph[node][0]
-  expanded = graph[node][1]
+  axioms, expanded, consistent, edges = graph[node]
   if axiom.type not in axioms.keys():
+    # Leaf axiom goes straight to the expanded set — check for clash immediately.
+    if NNF(Not(axiom)) in expanded:  # type: ignore[arg-type]
+      consistent = False
     expanded.add(axiom)  # type: ignore[arg-type]
+    graph[node] = (axioms, expanded, consistent, edges)
   else:
     axioms[axiom.type].add(axiom)  # type: ignore[index]
   return graph, axiom
 
 
-def tree_search(models: list[Graph], node_list: list[str], node_index: int) -> list[Graph]:
+def tree_search(
+  models: list[Graph],
+  node_list: list[str],
+  node_index: int,
+  namer: NodeNameGenerator | None = None,
+) -> list[Graph]:
   if node_index == len(node_list):
     return models
   _models: list[Graph] = []
   for model in models:
-    _models += run_expansion_loop(model, node_list[node_index])
-  return tree_search(_models, node_list, node_index + 1)
+    _models += run_expansion_loop(model, node_list[node_index], namer=namer)
+  return tree_search(_models, node_list, node_index + 1, namer)
 
 
-def get_models(graph: Graph, axiom: NNFResult, individual: str) -> list[Graph]:
+def get_models(
+  graph: Graph,
+  axiom: NNFResult,
+  individual: str,
+  namer: NodeNameGenerator | None = None,
+) -> list[Graph]:
+  if namer is None:
+    namer = NodeNameGenerator()
   if individual == "#ALL":
     if len(graph) == 0:
       graph = prepare_graph(graph, namer.get_name())
     for node in graph.keys():
       graph, axiom = prime_graph(graph, axiom, node)
-    models = tree_search([graph], list(graph.keys()), 0)
+    models = tree_search([graph], list(graph.keys()), 0, namer)
   else:
     graph = prepare_graph(graph, individual)
     graph, axiom = prime_graph(graph, axiom, individual)
-    models = run_expansion_loop(graph, individual)
+    models = run_expansion_loop(graph, individual, namer=namer)
 
   return models
