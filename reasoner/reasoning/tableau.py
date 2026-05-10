@@ -39,7 +39,7 @@ def update_axioms(
   label_set: set[ConceptExpr],
   consistent: bool,
 ) -> tuple[AxiomBucket, set[ConceptExpr], bool]:
-  if axiom.type in axiom_dict.keys():
+  if isinstance(axiom, (And, Or, Some, All)):
     axiom_dict[axiom.type].add(axiom)
   else:
     label_set, consistent = update_and_check(axiom, label_set, consistent)

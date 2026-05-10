@@ -56,6 +56,7 @@ class KnowledgeBase(object):
     self.model = Model()
     self.pp = pprint.PrettyPrinter(indent=2)
     self.axioms: list[AnyAxiom] = []
+    self._sat_run = False
     logger.debug("Knowledge base initialised.")
 
   def __axiom_adder(self, axiom: ABoxAxiom | TBoxAxiom) -> None:
@@ -88,8 +89,19 @@ class KnowledgeBase(object):
     return self.model.is_satisfiable(axiom)
 
   def run_sat(self) -> None:
-    self.init_axioms_list()
-    for axiom in self.axioms:
+    """
+    Run satisfiability over all loaded axioms.
+
+    ABox axioms are always processed before TBox axioms so that TBox rules
+    propagate correctly to all known individuals. Idempotent: calling this
+    more than once has no effect.
+    """
+    if self._sat_run:
+      return
+    self._sat_run = True
+    for axiom in self.abox.get_axioms():
+      self.model.add_axiom(axiom)  # type: ignore[arg-type]
+    for axiom in self.tbox.get_axioms():
       self.model.add_axiom(axiom)  # type: ignore[arg-type]
 
   def print_kb(self) -> None:
