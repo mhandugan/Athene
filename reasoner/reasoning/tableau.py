@@ -4,7 +4,8 @@ import logging
 from copy import deepcopy
 
 from .nnf import NNF, NNFResult
-from ..knowledgebase.axioms import ConceptExpr, Not
+from ..knowledgebase.axioms import And, ConceptExpr, Not, Or, RoleAssertion, Subsumption
+from ..common.constructors import Some, All
 from ..knowledgebase.graph import NodeNameGenerator, NodeSet
 
 logger = logging.getLogger(__name__)
@@ -65,70 +66,74 @@ def run_expansion_loop(
 
   while len(axioms["AND"]):
     axiom = axioms["AND"].pop()
-    axiom1 = axiom.term_a  # type: ignore[union-attr]
-    axiom2 = axiom.term_b  # type: ignore[union-attr]
-    axioms, expanded, consistent = update_axioms(axiom1, axioms, expanded, consistent)
-    axioms, expanded, consistent = update_axioms(axiom2, axioms, expanded, consistent)
-    graph[node] = (axioms, expanded, consistent, edges)
+    if isinstance(axiom, And):
+      axiom1 = axiom.term_a
+      axiom2 = axiom.term_b
+      axioms, expanded, consistent = update_axioms(axiom1, axioms, expanded, consistent)
+      axioms, expanded, consistent = update_axioms(axiom2, axioms, expanded, consistent)
+      graph[node] = (axioms, expanded, consistent, edges)
 
   while len(axioms["OR"]):
     axiom = axioms["OR"].pop()
-    axiom1 = axiom.term_a  # type: ignore[union-attr]
-    axiom2 = axiom.term_b  # type: ignore[union-attr]
-    graph_copy_a = deepcopy(graph)
-    axioms_a, expanded_a, consistent_a, edges_a = graph_copy_a[node]
-    graph_copy_b = deepcopy(graph)
-    axioms_b, expanded_b, consistent_b, edges_b = graph_copy_b[node]
-    axioms_a, expanded_a, consistent_a = update_axioms(axiom1, axioms_a, expanded_a, consistent_a)
-    graph_copy_a[node] = (axioms_a, expanded_a, consistent_a, edges_a)
-    models_a_copy = deepcopy(models)
-    models_b_copy = deepcopy(models)
-    models_a = run_expansion_loop(graph_copy_a, node, models_a_copy)
-    if is_model_consistent(models_a):
-      models += models_a
-    axioms_b, expanded_b, consistent_b = update_axioms(axiom2, axioms_b, expanded_b, consistent_b)
-    graph_copy_b[node] = (axioms_b, expanded_b, consistent_b, edges_b)
-    models_b = run_expansion_loop(graph_copy_b, node, models_b_copy)
-    if is_model_consistent(models_b):
-      models += models_b
-    return models
+    if isinstance(axiom, Or):
+      axiom1 = axiom.term_a
+      axiom2 = axiom.term_b
+      graph_copy_a = deepcopy(graph)
+      axioms_a, expanded_a, consistent_a, edges_a = graph_copy_a[node]
+      graph_copy_b = deepcopy(graph)
+      axioms_b, expanded_b, consistent_b, edges_b = graph_copy_b[node]
+      axioms_a, expanded_a, consistent_a = update_axioms(axiom1, axioms_a, expanded_a, consistent_a)
+      graph_copy_a[node] = (axioms_a, expanded_a, consistent_a, edges_a)
+      models_a_copy = deepcopy(models)
+      models_b_copy = deepcopy(models)
+      models_a = run_expansion_loop(graph_copy_a, node, models_a_copy)
+      if is_model_consistent(models_a):
+        models += models_a
+      axioms_b, expanded_b, consistent_b = update_axioms(axiom2, axioms_b, expanded_b, consistent_b)
+      graph_copy_b[node] = (axioms_b, expanded_b, consistent_b, edges_b)
+      models_b = run_expansion_loop(graph_copy_b, node, models_b_copy)
+      if is_model_consistent(models_b):
+        models += models_b
+      return models
 
   while len(axioms["SOME"]):
     axiom = axioms["SOME"].pop()
-    name = axiom.name  # type: ignore[union-attr]
-    axiom1 = axiom.concept  # type: ignore[union-attr]
-    children = edges.setdefault(name)
-    if children is None:
-      node_name = namer.get_name()
-      edges[name] = set({node_name})
-      graph = prepare_graph(graph, node_name)
-      axioms, expanded, consistent = update_axioms(
-        axiom1, graph[node_name][0], graph[node_name][1], graph[node_name][2]
-      )
-      graph[node_name] = (axioms, expanded, consistent, graph[node_name][3])
-      return run_expansion_loop(graph, node_name, deepcopy(models))
-    else:
-      for child in children:
+    if isinstance(axiom, Some):
+      name = axiom.name
+      axiom1 = axiom.concept
+      children = edges.setdefault(name)
+      if children is None:
+        node_name = namer.get_name()
+        edges[name] = set({node_name})
+        graph = prepare_graph(graph, node_name)
         axioms, expanded, consistent = update_axioms(
-          axiom1, graph[child][0], graph[child][1], graph[child][2]
+          axiom1, graph[node_name][0], graph[node_name][1], graph[node_name][2]
         )
-        graph[child] = (axioms, expanded, consistent, graph[child][3])
-        models += run_expansion_loop(graph, child, deepcopy(models))
-      return models
+        graph[node_name] = (axioms, expanded, consistent, graph[node_name][3])
+        return run_expansion_loop(graph, node_name, deepcopy(models))
+      else:
+        for child in children:
+          axioms, expanded, consistent = update_axioms(
+            axiom1, graph[child][0], graph[child][1], graph[child][2]
+          )
+          graph[child] = (axioms, expanded, consistent, graph[child][3])
+          models += run_expansion_loop(graph, child, deepcopy(models))
+        return models
 
   while len(axioms["ALL"]):
     axiom = axioms["ALL"].pop()
-    name = axiom.name  # type: ignore[union-attr]
-    axiom1 = axiom.concept  # type: ignore[union-attr]
-    children = edges.setdefault(name)
-    if children is not None:
-      for child in children:
-        axioms, expanded, consistent = update_axioms(
-          axiom1, graph[child][0], graph[child][1], graph[child][2]
-        )
-        graph[child] = (axioms, expanded, consistent, graph[child][3])
-        models += run_expansion_loop(graph, child, deepcopy(models))
-      return models
+    if isinstance(axiom, All):
+      name = axiom.name
+      axiom1 = axiom.concept
+      children = edges.setdefault(name)
+      if children is not None:
+        for child in children:
+          axioms, expanded, consistent = update_axioms(
+            axiom1, graph[child][0], graph[child][1], graph[child][2]
+          )
+          graph[child] = (axioms, expanded, consistent, graph[child][3])
+          models += run_expansion_loop(graph, child, deepcopy(models))
+        return models
 
   if (
     len(axioms["AND"]) == 0

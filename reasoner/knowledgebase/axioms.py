@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Literal, Union
 
 if TYPE_CHECKING:
   from ..common.constructors import All, Concept, Instance, Some
+  from .axioms import And, Not, Or, Subsumption, ClassAssertion, RoleAssertion, ABoxAxiom, TBoxAxiom
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class Axiom(object):
 
 class And(Axiom):
   """
-  Conjunction: A ⊓ B, written And(A, B).
+  Conjunction: A � B, written And(A, B).
   Equality is commutative: And(A, B) == And(B, A).
   """
 
@@ -101,7 +102,7 @@ class Not(Axiom):
 
 
 class Subsumption(Axiom):
-  """Subsumption axiom: axiom1 ⊑ axiom2 (all axiom1 are axiom2)."""
+  """Subsumption axiom: axiom1 � axiom2 (all axiom1 are axiom2)."""
 
   type: Literal["SUBSUMPTION"]
 
